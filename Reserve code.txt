@@ -1,0 +1,577 @@
+COD DE REZERVA (IN CAZUL IN CARE SE MODIFICA CEVA LA FIECARE FISIER)
+
+APP.JS
+
+let currentGraphData = null;
+let selectedNodes = [];
+
+function generateGraph() {
+    const numNodes = document.getElementById('num-nodes').value;
+    const numEdges = document.getElementById('num-edges').value;
+    const graphType = document.getElementById('graph-type').value;
+    const isDirected = document.getElementById('directed').checked;
+
+    fetch('/generate_graph', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            num_nodes: parseInt(numNodes, 10),
+            num_edges: parseInt(numEdges, 10),
+            graph_type: graphType,
+            directed: isDirected,
+        })
+    }).then(response => response.json())
+    .then(data => {
+        console.log('Received graph data:', data);
+        if (!data.elements || !data.elements.nodes || !data.elements.edges) {
+            throw new Error('Invalid graph data structure');
+        }
+        currentGraphData = data.elements;
+        renderGraph(data.elements, isDirected);
+        refreshSelection(); // Clear node selection after generating a new graph
+    }).catch(error => console.error('Error generating graph:', error));
+}
+
+function renderGraph(graphElements, isDirected, paths = []) {
+    d3.select('#graph-container').selectAll('svg').remove();
+
+    const nodes = graphElements.nodes.map(node => ({ id: node.data.id }));
+    const links = graphElements.edges.map(edge => ({
+        source: edge.data.source.toString(),
+        target: edge.data.target.toString(),
+        weight: edge.data.weight
+    }));
+
+    const svg = d3.select('#graph-container').append('svg')
+        .attr('width', 800)
+        .attr('height', 600);
+
+    if (isDirected) {
+        svg.append('defs').append('marker')
+            .attr('id', 'arrowhead')
+            .attr('viewBox', '-0 -5 10 10')
+            .attr('refX', 13)
+            .attr('refY', 0)
+            .attr('orient', 'auto')
+            .attr('markerWidth', 13)
+            .attr('markerHeight', 13)
+            .attr('xoverflow', 'visible')
+            .append('svg:path')
+            .attr('d', 'M 0,-5 L 10 ,0 L 0,5')
+            .attr('fill', '#aaa')
+            .style('stroke','none');
+    }
+
+    const pathSet = new Set(paths.flat().map(d => d.toString()));
+
+    const simulation = d3.forceSimulation(nodes)
+        .force("link", d3.forceLink(links).id(d => d.id).distance(100).strength(1))
+        .force("charge", d3.forceManyBody().strength(-500))
+        .force("center", d3.forceCenter(svg.attr('width') / 2, svg.attr('height') / 2))
+        .force("collide", d3.forceCollide().radius(50));
+
+    const link = svg.selectAll(".link")
+        .data(links)
+        .enter().append("line")
+        .attr("class", "link")
+        .style("stroke", d => pathSet.has(d.source) && pathSet.has(d.target) ? '#ff0000' : '#aaa')
+        .attr('marker-end', d => isDirected ? 'url(#arrowhead)' : '');
+
+    const node = svg.selectAll(".node")
+        .data(nodes)
+        .enter().append("g")
+        .attr("class", "node")
+        .attr("id", d => `node-${d.id}`)
+        .on("click", function(event, d) {
+            nodeClicked(d.id);
+        });
+
+    node.append("circle")
+        .attr("r", 5)
+        .style("fill", d => pathSet.has(d.id) ? '#ff0000' : '#69b3a2');
+
+    node.append("text")
+        .attr("dx", 12)
+        .attr("dy", ".35em")
+        .text(d => d.id);
+
+    simulation.on("tick", () => {
+        link
+            .attr("x1", d => d.source.x)
+            .attr("y1", d => d.source.y)
+            .attr("x2", d => d.target.x)
+            .attr("y2", d => d.target.y);
+
+        node
+           .attr("transform", d => `translate(${d.x},${d.y})`);
+    });
+}
+
+function findPath() {
+    if (selectedNodes.length < 2) {
+        alert('Please select at least two nodes.');
+        return;
+    }
+    const algorithm = document.getElementById('algorithm-select').value;
+    const promises = [];
+
+    for (let i = 0; i < selectedNodes.length - 1; i++) {
+        promises.push(fetch('/find_path', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                start_node: selectedNodes[i],
+                end_node: selectedNodes[i + 1],
+                algorithm: algorithm
+            })
+        }).then(response => response.json()));
+    }
+
+    Promise.all(promises)
+        .then(results => {
+            const paths = results.map(result => result.Route);
+            const combinedPath = [].concat(...paths);
+            const uniquePath = Array.from(new Set(combinedPath));
+
+            document.getElementById('path-result').textContent = results.map(result => 
+                `Path: ${result.Route.join(' -> ')}\nComputation Time: ${result.ComputationTime}ms\nNodes Visited: ${result.NodesVisited}\nTotal Distance: ${result.TotalDistance}\n\n`
+            ).join('');
+            renderGraph(currentGraphData, document.getElementById('directed').checked, uniquePath);
+        })
+        .catch(error => console.error('Error finding path:', error));
+}
+
+function nodeClicked(nodeId) {
+    if (selectedNodes.includes(nodeId)) {
+        selectedNodes = selectedNodes.filter(id => id !== nodeId);
+    } else {
+        selectedNodes.push(nodeId);
+    }
+    updateSelectedNodesDisplay();
+}
+
+function refreshSelection() {
+    selectedNodes = [];
+    updateSelectedNodesDisplay();
+}
+
+function updateSelectedNodesDisplay() {
+    document.getElementById('selected-nodes').textContent = `Selected Nodes: ${selectedNodes.join(', ')}`;
+}
+
+
+
+INDEX.HTML
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Graph Algorithm Visualizer</title>
+    <link rel="stylesheet" href="/static/css/style.css" />
+    <script src="/static/js/app.js" defer></script>
+    <script src="https://d3js.org/d3.v6.min.js"></script>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <h1>Graph Algorithm Visualizer</h1>
+    <div class="controls">
+      <div class="control-group">
+        <label for="graph-type">Graph Type:</label>
+        <select id="graph-type">
+          <option value="random">Random</option>
+          <option value="cycle">Cycle</option>
+          <option value="dense">Dense</option>
+          <option value="sparse">Sparse</option>
+        </select>
+      </div>
+      <div class="control-group">
+        <label for="directed">Directed:</label>
+        <input type="checkbox" id="directed" />
+      </div>
+      <div class="control-group">
+        <label for="num-nodes">Number of Nodes:</label>
+        <input type="number" id="num-nodes" value="5" />
+      </div>
+      <div class="control-group">
+        <label for="num-edges">Number of Edges:</label>
+        <input type="number" id="num-edges" value="10" />
+      </div>
+      <button onclick="generateGraph()">Generate Graph</button>
+      <button onclick="refreshSelection()">Refresh Selection</button>
+    </div>
+    <div class="main-container">
+      <div id="graph-container" class="graph-container"></div>
+      <div id="result-container" class="result-container">
+        <div>
+          <label for="algorithm-select">Choose Algorithm:</label>
+          <select id="algorithm-select">
+            <option value="astar">A*</option>
+            <option value="bidijkstra">Bidirectional Dijkstra</option>
+            <option value="bellmanford">Bellman-Ford</option>
+          </select>
+          <button onclick="findPath()">Find Path</button>
+        </div>
+        <div id="selected-nodes">Selected Nodes:</div>
+        <div id="path-result">Path:</div>
+      </div>
+    </div>
+  </body>
+</html>
+
+
+
+STYLE.CSS
+
+body {
+  font-family: "Roboto", sans-serif;
+  margin: 0;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background-color: #f5f5f5;
+}
+
+h1 {
+  margin-bottom: 20px;
+}
+
+.controls {
+  margin-bottom: 20px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
+.control-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.main-container {
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+  width: 100%;
+}
+
+.graph-container {
+  width: 800px;
+  height: 600px;
+  background-color: #ffffff;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+}
+
+.result-container {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 300px;
+  padding: 20px;
+  background-color: #ffffff;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+}
+
+.result-container div {
+  margin-bottom: 10px;
+}
+
+button {
+  padding: 10px 20px;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  margin: 5px;
+}
+
+button:hover {
+  background-color: #0056b3;
+}
+
+#selected-nodes {
+  font-weight: bold;
+}
+
+#path-result {
+  white-space: pre-line;
+}
+
+
+
+MAIN.PY
+
+from flask import Flask, render_template, jsonify, request
+import pathfinding
+import graph_generator
+import networkx as nx
+import json
+
+app = Flask(__name__)
+current_graph = None
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/find_path', methods=['POST'])
+def find_path():
+    global current_graph
+    data = request.json
+    start_node = int(data['start_node'])
+    end_node = int(data['end_node'])
+    algorithm = data['algorithm']
+    result = pathfinding.find_path(current_graph, start_node, end_node, algorithm)
+    return jsonify(result)
+
+@app.route('/generate_graph', methods=['POST'])
+def generate_graph():
+    global current_graph
+    data = request.json
+    num_nodes = data['num_nodes']
+    num_edges = data['num_edges']
+    graph_type = data['graph_type']
+    directed = data['directed']
+
+    if graph_type == 'random':
+        graph = graph_generator.generate_random_graph(num_nodes, num_edges, directed)
+    elif graph_type == 'cycle':
+        graph = graph_generator.create_cycle_graph(num_nodes, directed=directed)
+    elif graph_type == 'dense':
+        graph = graph_generator.create_dense_graph(num_nodes, directed)
+    elif graph_type == 'sparse':
+        graph = graph_generator.create_sparse_graph(num_nodes, directed)
+
+    current_graph = graph
+
+    graph_data = nx.readwrite.json_graph.cytoscape_data(graph)
+    return jsonify(graph_data)
+
+if __name__ == '__main__':
+    app.run(debug=True)
+
+
+
+PATHFINDING.PY
+
+
+import heapq
+import networkx as nx
+import time
+
+def find_path(graph, start_node, end_node, algorithm):
+    if algorithm == "astar":
+        return a_star_algorithm(graph, start_node, end_node)
+    elif algorithm == "bidijkstra":
+        return bidirectional_dijkstra(graph, start_node, end_node)
+    elif algorithm == "bellmanford":
+        return bellman_ford_algorithm(graph, start_node, end_node)
+
+def a_star_algorithm(graph, start, goal):
+    start_time = time.time()
+    open_set = set([start])
+    came_from = {}
+    g_score = {node: float('inf') for node in graph.nodes()}
+    g_score[start] = 0
+    f_score = {node: float('inf') for node in graph.nodes()}
+    f_score[start] = heuristic(start, goal)
+    steps = []
+
+    while open_set:
+        current = min(open_set, key=lambda node: f_score[node])
+        if current == goal:
+            path = reconstruct_path(came_from, current)
+            total_distance = g_score[goal]
+            computation_time = time.time() - start_time
+            return {
+                "ComputationTime": computation_time,
+                "NodesVisited": len(steps),
+                "Route": path,
+                "TotalDistance": total_distance
+            }
+
+        open_set.remove(current)
+        steps.append(current)
+        for neighbor in graph.neighbors(current):
+            tentative_g_score = g_score[current] + graph[current][neighbor].get('weight', 1)
+            if tentative_g_score < g_score[neighbor]:
+                came_from[neighbor] = current
+                g_score[neighbor] = tentative_g_score
+                f_score[neighbor] = tentative_g_score + heuristic(neighbor, goal)
+                if neighbor not in open_set:
+                    open_set.add(neighbor)
+
+    return {
+        "ComputationTime": time.time() - start_time,
+        "NodesVisited": len(steps),
+        "Route": [],
+        "TotalDistance": float('inf')
+    }
+
+def heuristic(node1, node2):
+    return 0  # Simplistic heuristic for demo purposes
+
+def reconstruct_path(came_from, current):
+    total_path = [current]
+    while current in came_from:
+        current = came_from[current]
+        total_path.append(current)
+    total_path.reverse()
+    return total_path
+
+def bidirectional_dijkstra(graph, start, goal):
+    start_time = time.time()
+    def dijkstra_partial(source, target, graph, steps, label):
+        q, seen, mins = [(0, source, ())], set(), {source: 0}
+        while q:
+            (cost, v1, path) = heapq.heappop(q)
+            if v1 not in seen:
+                seen.add(v1)
+                path = (v1, path)
+                steps.append(v1)
+                if v1 == target:
+                    return cost, path
+                
+                for v2 in graph.neighbors(v1):
+                    if v2 in seen:
+                        continue
+                    prev = mins.get(v2, None)
+                    next_cost = cost + graph[v1][v2].get('weight', 1)
+                    if prev is None or next_cost < prev:
+                        mins[v2] = next_cost
+                        heapq.heappush(q, (next_cost, v2, path))
+        return float('inf'), []
+    
+    steps = []
+    forward_cost, forward_path = dijkstra_partial(start, goal, graph, steps, 'forward')
+    backward_cost, backward_path = dijkstra_partial(goal, start, graph, steps, 'backward')
+
+    if forward_cost < backward_cost:
+        path = reconstruct_path_bidirectional(forward_path)
+        total_distance = forward_cost
+    else:
+        path = reconstruct_path_bidirectional(backward_path)
+        total_distance = backward_cost
+    computation_time = time.time() - start_time
+    return {
+        "ComputationTime": computation_time,
+        "NodesVisited": len(steps),
+        "Route": path,
+        "TotalDistance": total_distance
+    }
+
+def reconstruct_path_bidirectional(path):
+    result_path = []
+    while path:
+        node, path = path
+        result_path.append(node)
+    return result_path[::-1]
+
+def bellman_ford_algorithm(graph, start, goal):
+    start_time = time.time()
+    distance = {node: float('inf') for node in graph.nodes()}
+    predecessor = {node: None for node in graph.nodes()}
+    distance[start] = 0
+    steps = []
+
+    for _ in range(len(graph) - 1):
+        for node in graph.nodes():
+            for neighbor in graph.neighbors(node):
+                weight = graph[node][neighbor].get('weight', 1)
+                if distance[node] + weight < distance[neighbor]:
+                    distance[neighbor] = distance[node] + weight
+                    predecessor[neighbor] = node
+                    steps.append(neighbor)
+
+    for node in graph.nodes():
+        for neighbor in graph.neighbors(node):
+            weight = graph[node][neighbor].get('weight', 1)
+            if distance[node] + weight < distance[neighbor]:
+                return {
+                    "ComputationTime": time.time() - start_time,
+                    "NodesVisited": "Not applicable for Bellman-Ford",
+                    "Route": "Path not provided by Bellman-Ford",
+                    "TotalDistance": float('inf'),
+                    "Error": "Graph contains a negative weight cycle"
+                }
+    
+    path = reconstruct_path_bellman_ford(predecessor, goal)
+    total_distance = distance[goal]
+    computation_time = time.time() - start_time
+    return {
+        "ComputationTime": computation_time,
+        "NodesVisited": "Not applicable for Bellman-Ford",
+        "Route": path,
+        "TotalDistance": total_distance
+    }
+
+def reconstruct_path_bellman_ford(predecessor, goal):
+    path = []
+    while goal is not None:
+        path.append(goal)
+        goal = predecessor[goal]
+    path.reverse()
+    return path
+
+
+
+GRAPH_GENERATOR.PY
+
+import networkx as nx
+import random
+
+def generate_random_graph(num_nodes, num_edges, directed=False):
+    graph_type = random.choice(['cycle', 'dense', 'sparse'])
+    if graph_type == 'cycle':
+        return create_cycle_graph(num_nodes, directed=directed)
+    elif graph_type == 'dense':
+        return create_dense_graph(num_nodes, directed=directed)
+    elif graph_type == 'sparse':
+        return create_sparse_graph(num_nodes, directed=directed)
+
+def create_random_graph(num_nodes, num_edges, directed=False):
+    graph = nx.DiGraph() if directed else nx.Graph()
+    graph.add_nodes_from(range(num_nodes))
+    while graph.number_of_edges() < num_edges:
+        u = random.randint(0, num_nodes - 1)
+        v = random.randint(0, num_nodes - 1)
+        if u != v:
+            weight = random.randint(1, 10)
+            graph.add_edge(u, v, weight=weight)
+    return graph
+
+def create_cycle_graph(num_nodes, directed=False):
+    weights = range(1, 10)
+    cycle = nx.DiGraph() if directed else nx.Graph()
+    edges = [(i, (i + 1) % num_nodes, random.choice(weights)) for i in range(num_nodes)]
+    cycle.add_weighted_edges_from(edges)
+    return cycle
+
+def create_dense_graph(num_nodes, directed=False):
+    graph = nx.DiGraph() if directed else nx.Graph()
+    for i in range(num_nodes):
+        for j in range(i + 1, num_nodes):
+            weight = random.randint(1, 10)
+            graph.add_edge(i, j, weight=weight)
+            if directed:
+                graph.add_edge(j, i, weight=weight)
+    return graph
+
+def create_sparse_graph(num_nodes, directed=False):
+    return create_random_graph(num_nodes, num_nodes - 1, directed)

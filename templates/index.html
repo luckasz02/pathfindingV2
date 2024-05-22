@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Graph Algorithm Visualizer</title>
+    <link rel="stylesheet" href="/static/css/style.css" />
+    <script src="/static/js/app.js" defer></script>
+    <script src="https://d3js.org/d3.v6.min.js"></script>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <h1>Graph Algorithm Visualizer</h1>
+    <div class="controls">
+      <div class="control-group">
+        <label for="graph-type">Graph Type:</label>
+        <select id="graph-type">
+          <option value="random">Random</option>
+          <option value="cycle">Cycle</option>
+          <option value="dense">Dense</option>
+          <option value="sparse">Sparse</option>
+        </select>
+      </div>
+      <div class="control-group">
+        <label for="directed">Directed:</label>
+        <input type="checkbox" id="directed" />
+      </div>
+      <div class="control-group">
+        <label for="num-nodes">Number of Nodes:</label>
+        <input type="number" id="num-nodes" value="5" />
+      </div>
+      <div class="control-group">
+        <label for="num-edges">Number of Edges:</label>
+        <input type="number" id="num-edges" value="10" />
+      </div>
+      <button onclick="generateGraph()">Generate Graph</button>
+      <button onclick="refreshSelection()">Refresh Selection</button>
+    </div>
+    <div class="main-container">
+      <div id="graph-container" class="graph-container"></div>
+      <div id="result-container" class="result-container">
+        <div>
+          <label for="algorithm-select">Choose Algorithm:</label>
+          <select id="algorithm-select">
+            <option value="astar">A*</option>
+            <option value="bidijkstra">Bidirectional Dijkstra</option>
+            <option value="bellmanford">Bellman-Ford</option>
+          </select>
+          <button onclick="findPath()">Find Path</button>
+        </div>
+        <div id="selected-nodes">Selected Nodes:</div>
+        <div id="path-result">Path:</div>
+      </div>
+    </div>
+  </body>
+</html>
